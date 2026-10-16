@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sendbeta | Instant Delivery & Cargo Rates</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        navy: '#0F172A',
+                        orange: '#F97316',
+                        surface: '#F1F5F9',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- React & ReactDOM (Development version for fast uncompiled use) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <!-- Babel for in-browser JSX compilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #F1F5F9; color: #0F172A; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+
+        /* Hide scrollbar for cleaner look */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // Custom Icon wrapper to use generic lucide icons in React safely via CDN
+        const Icon = ({ name, size = 24, color = "currentColor", className = "" }) => {
+            const iconRef = useRef(null);
+
+            useEffect(() => {
+                if (iconRef.current && typeof lucide !== 'undefined') {
+                    // Clear previous content
+                    iconRef.current.innerHTML = '';
+
+                    // Create an i element for lucide to replace
+                    const iElem = document.createElement('i');
+                    iElem.setAttribute('data-lucide', name);
+                    iconRef.current.appendChild(iElem);
+
+                    try {
+                        lucide.createIcons({
+                            nameAttr: 'data-lucide',
+                            attrs: {
+                                class: className,
+                                width: size,
+                                height: size,
+                                stroke: color
+                            }
+                        });
+                    } catch (e) {
+                        console.error('Error rendering icon:', name, e);
+                    }
+                }
+            }, [name, size, color, className]);
+
+            return <span ref={iconRef} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}></span>;
+        };
+
+        const App = () => {
+            // State variables
+            const [serviceTier, setServiceTier] = useState('intra-city');
+            const [weightStr, setWeightStr] = useState('');
+            const [pickup, setPickup] = useState('');
+            const [destination, setDestination] = useState('');
+            const [senderName, setSenderName] = useState('');
+            const [phone, setPhone] = useState('');
+            const [packageCategory, setPackageCategory] = useState('');
+
+            // Validation state
+            const [isValid, setIsValid] = useState(false);
+
+            // Volumetric dimensions state
+            const [lengthStr, setLengthStr] = useState('');
+            const [widthStr, setWidthStr] = useState('');
+            const [heightStr, setHeightStr] = useState('');
+
+            // Calculation variables
+            const actualWeight = parseFloat(weightStr) || 0;
+
+            // Volumetric calculation (L * W * H / 5000)
+            const l = parseFloat(lengthStr) || 0;
+            const w = parseFloat(widthStr) || 0;
+            const h = parseFloat(heightStr) || 0;
+            const volumetricWeight = (l * w * h) / 5000;
+
+            // Chargeable weight is the greater of actual vs volumetric
+            const weight = Math.max(actualWeight, volumetricWeight);
+            const isBulkPromo = weight >= 50;
+
+            // Compute pricing
+            const rateBreakdown = useMemo(() => {
+                let baseRate = 0;
+                let addRate = 0;
+                let minChargeableWeight = 0;
+                let initialWeight = 0;
+                let currency = '₦';
+                let total = 0;
+
+                if (serviceTier === 'intra-city') {
+                    // Intra-City Dispatch (Lagos/Abuja): Base rate of ₦2,000 for the first 2kg + ₦400 for every additional kg.
+                    baseRate = 2000;
+                    addRate = 400;
+                    initialWeight = 2;
+                    currency = '₦';
+
+                    if (weight <= initialWeight) {
+                        total = weight > 0 ? baseRate : 0;
+                    } else {
+                        total = baseRate + Math.ceil(weight - initialWeight) * addRate;
+                    }
+
+                } else if (serviceTier === 'nationwide') {
+                    // Nationwide Express: Base rate of ₦4,500 for the first 1kg + ₦1,000 for every additional kg across state hubs.
+                    baseRate = 4500;
+                    addRate = 1000;
+                    initialWeight = 1;
+                    currency = '₦';
+
+                    if (weight <= initialWeight) {
+                        total = weight > 0 ? baseRate : 0;
+                    } else {
+                        total = baseRate + Math.ceil(weight - initialWeight) * addRate;
+                    }
+
+                } else if (serviceTier === 'worldwide') {
+                    // Worldwide Cargo / Export: Base rate of $9.50/kg (or ₦14,000 equivalent) with a 10kg minimum chargeable weight.
+                    // Let's use ₦14,000 equivalent for display in Naira.
+                    const ratePerKg = 14000;
+                    minChargeableWeight = 10;
+                    currency = '₦';
+
+                    const chargeableWeight = Math.max(weight, weight > 0 ? minChargeableWeight : 0);
+                    total = chargeableWeight * ratePerKg;
+                }
+
+                let effectiveTotal = total;
+                let discountAmount = 0;
+                if (isBulkPromo && total > 0) {
+                    effectiveTotal = total * 0.5;
+                    discountAmount = total * 0.5;
+                }
+
+                const hasFreePickup = effectiveTotal > 20000;
+
+                return {
+                    total: effectiveTotal,
+                    originalTotal: total,
+                    discountAmount,
+                    isBulkPromo,
+                    hasFreePickup,
+                    currency
+                };
+            }, [serviceTier, weight, isBulkPromo]);
+
+            // Validate form
+            useEffect(() => {
+                const requiredFieldsFilled =
+                    weight > 0 &&
+                    pickup.trim().length > 0 &&
+                    destination.trim().length > 0 &&
+                    senderName.trim().length > 0 &&
+                    phone.trim().length > 0;
+
+                setIsValid(requiredFieldsFilled);
+            }, [weight, pickup, destination, senderName, phone]);
+
+            return (
+                <div className="min-h-screen bg-surface w-full overflow-x-hidden">
+                    {/* Header */}
+                    <header className="bg-navy text-white p-4 sticky top-0 z-50">
+                        <div className="max-w-6xl mx-auto flex justify-between items-center">
+                            <div className="flex items-center gap-2">
+                                <Icon name="package-check" size={32} color="#F97316" />
+                                <span className="font-extrabold text-2xl tracking-tight">Sendbeta</span>
+                            </div>
+                            <div className="hidden md:flex items-center gap-4 text-sm font-medium">
+                                <a href="#calculator" className="hover:text-orange transition-colors">Instant Quote</a>
+                                <a href="#locations" className="hover:text-orange transition-colors">Drop-Off Hub</a>
+                                <a href="https://wa.me/2347035442047" className="bg-orange text-white px-4 py-2 rounded font-bold flex items-center gap-2 hover:bg-orange-600 transition-colors">
+                                    <Icon name="message-circle" size={18} />
+                                    Contact Desk
+                                </a>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-6xl mx-auto p-4 md:p-8">
+                        {/* Above-the-Fold Hero & Interactive Funnel Engine */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 mb-16">
+
+                            {/* Left Column: Value Prop */}
+                            <div className="flex flex-col justify-center space-y-6">
+                                <div className="inline-block bg-orange/10 text-orange font-bold px-3 py-1 rounded-full text-sm w-max mb-2">
+                                    High-Speed E-commerce Logistics
+                                </div>
+                                <h1 className="text-4xl md:text-5xl font-extrabold text-navy leading-tight">
+                                    Send Fast. <br/>
+                                    Scale Faster.
+                                </h1>
+                                <p className="text-lg text-slate-600 max-w-md">
+                                    Instant intra-city dispatch, nationwide express, and worldwide cargo. Skip the DMs and get your instant delivery rate now.
+                                </p>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                                    <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-100 flex items-start gap-3">
+                                        <div className="bg-navy/5 p-2 rounded text-navy">
+                                            <Icon name="zap" size={24} />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-navy">Swift Pickups</h3>
+                                            <p className="text-sm text-slate-500">Lagos & Abuja</p>
+                                        </div>
+                                    </div>
+                                    <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-100 flex items-start gap-3">
+                                        <div className="bg-navy/5 p-2 rounded text-navy">
+                                            <Icon name="globe" size={24} />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-navy">Worldwide</h3>
+                                            <p className="text-sm text-slate-500">Cargo & Export</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Right Column: Calculator Widget */}
+                            <div id="calculator" className="bg-white p-6 md:p-8 rounded-xl shadow-xl border border-slate-200">
+                                <h2 className="text-2xl font-bold text-navy mb-6 flex items-center gap-2">
+                                    <Icon name="calculator" size={24} className="text-orange" />
+                                    Instant Quote & Booking
+                                </h2>
+
+                                <div className="space-y-5">
+                                    {/* Service Tier Selector */}
+                                    <div>
+                                        <label className="block text-sm font-semibold text-slate-700 mb-2">Service Tier</label>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                            {[
+                                                { id: 'intra-city', label: 'Intra-City', desc: 'Lagos/Abuja' },
+                                                { id: 'nationwide', label: 'Nationwide', desc: 'Express' },
+                                                { id: 'worldwide', label: 'Worldwide', desc: 'Cargo' }
+                                            ].map(tier => (
+                                                <button
+                                                    key={tier.id}
+                                                    onClick={() => setServiceTier(tier.id)}
+                                                    className={`p-3 rounded border text-left flex flex-col items-center justify-center transition-all ${serviceTier === tier.id ? 'border-orange bg-orange/5 ring-1 ring-orange' : 'border-slate-200 hover:border-slate-300 bg-slate-50'}`}
+                                                >
+                                                    <span className={`font-bold ${serviceTier === tier.id ? 'text-orange' : 'text-navy'}`}>{tier.label}</span>
+                                                    <span className="text-xs text-slate-500">{tier.desc}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Sender Details */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-semibold text-slate-700 mb-1">Sender Name</label>
+                                            <input
+                                                type="text"
+                                                value={senderName}
+                                                onChange={e => setSenderName(e.target.value)}
+                                                className="w-full p-3 border border-slate-300 rounded focus:ring-2 focus:ring-orange focus:border-orange outline-none transition-all"
+                                                placeholder="Your Name"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-semibold text-slate-700 mb-1">Phone Number</label>
+                                            <input
+                                                type="tel"
+                                                inputMode="tel"
+                                                value={phone}
+                                                onChange={e => setPhone(e.target.value)}
+                                                className="w-full p-3 border border-slate-300 rounded focus:ring-2 focus:ring-orange focus:border-orange outline-none transition-all"
+                                                placeholder="e.g. 07035442047"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Locations */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-semibold text-slate-700 mb-1">Pickup Location</label>
+                                            <div className="relative">
+                                                <Icon name="map-pin" size={18} className="absolute left-3 top-3.5 text-slate-400" />
+                                                <input
+                                                    type="text"
+                                                    value={pickup}
+                                                    onChange={e => setPickup(e.target.value)}
+                                                    className="w-full p-3 pl-10 border border-slate-300 rounded focus:ring-2 focus:ring-orange focus:border-orange outline-none transition-all"
+                                                    placeholder="Full Address / Area"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-semibold text-slate-700 mb-1">Destination City/Country</label>
+                                            <div className="relative">
+                                                <Icon name="navigation" size={18} className="absolute left-3 top-3.5 text-slate-400" />
+                                                <input
+                                                    type="text"
+                                                    value={destination}
+                                                    onChange={e => setDestination(e.target.value)}
+                                                    className="w-full p-3 pl-10 border border-slate-300 rounded focus:ring-2 focus:ring-orange focus:border-orange outline-none transition-all"
+                                                    placeholder="Where to?"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Package Info */}
+                                    <div className="grid grid-cols-1 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-semibold text-slate-700 mb-1">Package Category</label>
+                                            <input
+                                                type="text"
+                                                value={packageCategory}
+                                                onChange={e => setPackageCategory(e.target.value)}
+                                                className="w-full p-3 border border-slate-300 rounded focus:ring-2 focus:ring-orange focus:border-orange outline-none transition-all"
+                                                placeholder="e.g. Electronics, Clothing"
+                                            />
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-3 bg-slate-50 border border-slate-200 rounded">
+                                            <div>
+                                                <label className="block text-sm font-semibold text-slate-700 mb-1">Actual Weight (KG)</label>
+                                                <div className="relative">
+                                                    <Icon name="scale" size={18} className="absolute left-3 top-3.5 text-slate-400" />
+                                                    <input
+                                                        type="number"
+                                                        inputMode="decimal"
+                                                        min="0"
+                                                        step="0.1"
+                                                        value={weightStr}
+                                                        onChange={e => setWeightStr(e.target.value)}
+                                                        className="w-full p-3 pl-10 border border-slate-300 rounded focus:ring-2 focus:ring-orange focus:border-orange outline-none transition-all font-mono bg-white"
+                                                        placeholder="0.0"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-semibold text-slate-700 mb-1">Dimensions (cm) - <span className="text-slate-400 font-normal">Optional</span></label>
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    <input
+                                                        type="number" inputMode="decimal" min="0" placeholder="L"
+                                                        value={lengthStr} onChange={e => setLengthStr(e.target.value)}
+                                                        className="w-full p-3 border border-slate-300 rounded focus:ring-2 focus:ring-orange focus:border-orange outline-none transition-all font-mono text-center bg-white"
+                                                    />
+                                                    <input
+                                                        type="number" inputMode="decimal" min="0" placeholder="W"
+                                                        value={widthStr} onChange={e => setWidthStr(e.target.value)}
+                                                        className="w-full p-3 border border-slate-300 rounded focus:ring-2 focus:ring-orange focus:border-orange outline-none transition-all font-mono text-center bg-white"
+                                                    />
+                                                    <input
+                                                        type="number" inputMode="decimal" min="0" placeholder="H"
+                                                        value={heightStr} onChange={e => setHeightStr(e.target.value)}
+                                                        className="w-full p-3 border border-slate-300 rounded focus:ring-2 focus:ring-orange focus:border-orange outline-none transition-all font-mono text-center bg-white"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {volumetricWeight > actualWeight && actualWeight > 0 && (
+                                                <div className="col-span-1 md:col-span-2 text-xs text-orange font-medium flex items-center gap-1 mt-1">
+                                                    <Icon name="info" size={14} />
+                                                    Volumetric weight ({volumetricWeight.toFixed(1)}kg) applies.
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Promos & Calculation Results */}
+                                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
+                                        {rateBreakdown.isBulkPromo && (
+                                            <div className="bg-orange/10 text-orange border border-orange/20 p-2 rounded text-sm font-bold flex items-center gap-2 animate-pulse">
+                                                <Icon name="tag" size={16} />
+                                                50% Off Bulk Tier Applied!
+                                            </div>
+                                        )}
+                                        {rateBreakdown.hasFreePickup && (
+                                            <div className="bg-green-100 text-green-800 border border-green-200 p-2 rounded text-sm font-bold flex items-center gap-2">
+                                                <Icon name="truck" size={16} />
+                                                Free Pickup Activated (Orders &gt; ₦20,000)
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-between items-center border-t border-slate-200 pt-3 mt-3">
+                                            <span className="font-semibold text-slate-600">Estimated Total:</span>
+                                            <div className="text-right">
+                                                {rateBreakdown.isBulkPromo && (
+                                                    <span className="text-sm line-through text-slate-400 mr-2 font-mono">
+                                                        {rateBreakdown.currency}{rateBreakdown.originalTotal.toLocaleString()}
+                                                    </span>
+                                                )}
+                                                <span className="text-2xl font-extrabold text-navy font-mono">
+                                                    {rateBreakdown.currency}{rateBreakdown.total.toLocaleString()}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Action Button */}
+                                    <div className="relative group">
+                                        <button
+                                            onClick={() => {
+                                                const serviceNames = {
+                                                    'intra-city': 'Intra-City Dispatch',
+                                                    'nationwide': 'Nationwide Express',
+                                                    'worldwide': 'Worldwide Cargo'
+                                                };
+                                                const promoText = rateBreakdown.isBulkPromo ? '50% Bulk Discount Applied' : 'None';
+
+                                                const message = `[SENDBETA WEB ENGINE - BOOKING]
+| Service: ${serviceNames[serviceTier]}
+| Route: ${pickup} -> ${destination}
+| Est. Weight: ${weight}kg
+| Package: ${packageCategory || 'N/A'}
+| Sender: ${senderName} (${phone})
+| Promo Applied: ${promoText}
+| Est. Total: ${rateBreakdown.currency}${rateBreakdown.total.toLocaleString()}`;
+
+                                                const encodedMessage = encodeURIComponent(message);
+                                                window.location.href = `https://wa.me/2347035442047?text=${encodedMessage}`;
+                                            }}
+                                            disabled={!isValid || weight <= 0}
+                                            className={`w-full py-4 rounded-lg font-bold text-lg flex justify-center items-center gap-2 transition-all ${
+                                                isValid && weight > 0
+                                                    ? 'bg-navy text-white hover:bg-slate-800 shadow-lg hover:shadow-xl active:scale-[0.98]'
+                                                    : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                                            }`}
+                                        >
+                                            <Icon name="lock" size={20} />
+                                            Lock Rate & Send Manifest
+                                        </button>
+                                        {(!isValid || weight <= 0) && (
+                                            <div className="absolute -top-10 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white text-xs py-1 px-3 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                                                Please fill in all required fields and enter weight
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Down-Page Trust & Conversion Modules */}
+                        <div className="space-y-16 pb-16">
+
+                            {/* 3-Step Flow */}
+                            <div>
+                                <h2 className="text-3xl font-extrabold text-center text-navy mb-10">How It Works</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                    {[
+                                        { step: '1', title: 'Get Instant Quote', desc: 'Enter your package details above to lock in our transparent rates instantly.', icon: 'calculator' },
+                                        { step: '2', title: 'Book & Drop/Request', desc: 'Send your manifest to our WhatsApp desk. Walk in or request a swift pickup.', icon: 'message-square' },
+                                        { step: '3', title: 'Track & Deliver', desc: 'We dispatch immediately. Track your waybill until it safely reaches the destination.', icon: 'map' }
+                                    ].map(flow => (
+                                        <div key={flow.step} className="text-center">
+                                            <div className="w-16 h-16 mx-auto bg-navy text-white rounded-2xl flex items-center justify-center text-xl font-bold mb-4 rotate-3 hover:rotate-0 transition-transform">
+                                                <Icon name={flow.icon} size={32} />
+                                            </div>
+                                            <h3 className="font-bold text-xl text-navy mb-2">{flow.step}. {flow.title}</h3>
+                                            <p className="text-slate-600">{flow.desc}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Active Promo Banner */}
+                            <div className="bg-orange text-white p-8 rounded-xl shadow-lg flex flex-col md:flex-row items-center justify-between gap-6 overflow-hidden relative">
+                                <div className="absolute -right-10 -top-10 opacity-20 pointer-events-none">
+                                    <Icon name="percent" size={150} />
+                                </div>
+                                <div className="relative z-10">
+                                    <h3 className="text-2xl font-extrabold mb-2">Heavy-Weight Volume Discount!</h3>
+                                    <p className="text-orange-100 max-w-lg">
+                                        Shipping bulk? Get a massive <strong>50% off</strong> our standard base rates automatically applied on all packages <strong>50KG and above</strong>.
+                                    </p>
+                                </div>
+                                <a href="#calculator" className="relative z-10 bg-white text-orange font-bold px-6 py-3 rounded-lg hover:bg-orange-50 transition-colors whitespace-nowrap">
+                                    Calculate Bulk Rate
+                                </a>
+                            </div>
+
+                            {/* Office Drop-Off Locator */}
+                            <div id="locations" className="bg-white border border-slate-200 rounded-xl p-8 shadow-sm flex flex-col md:flex-row gap-8 items-center">
+                                <div className="bg-slate-100 p-6 rounded-lg w-full md:w-1/3 flex justify-center items-center">
+                                    <Icon name="store" size={64} className="text-navy" />
+                                </div>
+                                <div className="flex-1">
+                                    <h2 className="text-2xl font-extrabold text-navy mb-2">Walk-In Drop-Off Hub</h2>
+                                    <p className="text-slate-600 mb-4">Prefer to drop it off yourself? Visit our physical logistics hub in Lagos. Our desk is ready to process your waybill instantly.</p>
+
+                                    <div className="flex items-start gap-3 bg-slate-50 p-4 rounded border border-slate-100">
+                                        <Icon name="map-pin" size={24} className="text-orange mt-1 flex-shrink-0" />
+                                        <div>
+                                            <h4 className="font-bold text-navy">Sendbeta HQ</h4>
+                                            <p className="text-slate-600">26 Adeshina Street, off Awolowo Way<br/>Ikeja, Lagos</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </main>
+
+                    {/* Footer */}
+                    <footer className="bg-navy text-slate-400 py-8 border-t border-slate-800">
+                        <div className="max-w-6xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-2">
+                                <Icon name="package-check" size={24} className="text-orange" />
+                                <span className="font-bold text-white tracking-tight">Sendbeta</span>
+                            </div>
+                            <p className="text-sm">© {new Date().getFullYear()} Sendbeta Logistics. All rights reserved.</p>
+                        </div>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

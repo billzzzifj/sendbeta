@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        // Create a wrapper component for lucide icons in React since we are using plain lucide via CDN
+        const Icon = ({ name, size = 24, color = "currentColor", className = "" }) => {
+            const iconRef = React.useRef(null);
+
+            React.useEffect(() => {
+                if (iconRef.current && lucide.icons[name]) {
+                    // Create icon using the lucide utility
+                    lucide.createIcons({
+                        icons: { [name]: lucide.icons[name] },
+                        nameAttr: 'data-lucide',
+                        attrs: {
+                            class: className,
+                            width: size,
+                            height: size,
+                            stroke: color
+                        }
+                    });
+                }
+            }, [name, size, color, className]);
+
+            return <i ref={iconRef} data-lucide={name}></i>;
+        };
+
+        const App = () => {
+            return <div><Icon name="package" size={48} color="blue" /> Hello</div>;
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
